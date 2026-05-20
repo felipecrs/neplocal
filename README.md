@@ -209,6 +209,15 @@ python -m neplocal.proxy
 # The proxy will auto-detect your LAN IP and print the exact dnsmasq command.
 ```
 
+### Docker
+
+```bash
+docker build -t neplocal-proxy https://github.com/felipecrs/neplocal.git
+docker run --rm -p 80:80 -u $(id -u):$(id -g) -v ./captures:/wd/captures neplocal-proxy
+```
+
+Pass extra flags after the image name (e.g. `--dns 8.8.8.8`). The image is ~50 MB (Python 3.14 Alpine, zero pip dependencies).
+
 ### Log format
 
 Each intercepted frame is appended as a JSON line to `captures/<SERIAL_NUMBER>.jsonl`:
