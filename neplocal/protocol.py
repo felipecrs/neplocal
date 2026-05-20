@@ -20,18 +20,23 @@ CURRENT_SCALE = 819.2
 POWER_SCALE = 209715.2
 ENERGY_SCALE = 3.62
 FREQUENCY_SCALE = 256.0
+AC_VOLTAGE_SCALE = 16.0
+AC_VOLTAGE_OFFSET = 22.0
+TEMPERATURE_SCALE = 48.0
+TEMPERATURE_OFFSET = 53.0
 
 OFF_MAGIC = 0
 OFF_LENGTH = 2
 OFF_COMMAND = 4
 OFF_FLAGS = 6
+OFF_ALERT = 23
 OFF_DATA_LEN = 12
 OFF_SN = 19
 OFF_TOTAL_CURRENT = 25
 OFF_MPPT1_VOLTAGE = 27
-OFF_UNKNOWN_A = 29
+OFF_AC_VOLTAGE = 29
 OFF_AC_FREQ = 33
-OFF_UNKNOWN_B = 35
+OFF_TEMPERATURE = 35
 OFF_TOTAL_ENERGY = 37
 OFF_GRID_SPEC = 39
 OFF_MODULES = 41
@@ -76,9 +81,10 @@ class TelemetryFrame:
     modules: list[ModuleReading] = field(default_factory=list)
     frame_length: int = 0
     data_length: int = 0
+    ac_voltage: float = 0.0
+    temperature: float = 0.0
+    alert_code: int = 0
     checksum_ok: bool = False
-    unknown_a: int = 0
-    unknown_b: int = 0
     raw_hex: str = ""
 
     @property
@@ -96,8 +102,11 @@ class TelemetryFrame:
             "total_dc_current_A": round(self.total_dc_current, 3),
             "total_energy_today_Wh": round(self.total_energy_today, 1),
             "mppt1_voltage_V": round(self.mppt1_voltage, 2),
+            "ac_voltage_V": round(self.ac_voltage, 1),
             "ac_frequency_Hz": round(self.ac_frequency, 2),
+            "temperature_C": round(self.temperature, 2),
             "grid_voltage_V": self.grid_voltage,
+            "alert_code": f"0x{self.alert_code:04X}",
             "modules": [m.to_dict() for m in self.modules],
             "checksum_ok": self.checksum_ok,
         }
@@ -112,9 +121,14 @@ def _be16(data: bytes, offset: int) -> int:
 
 
 def verify_checksum(data: bytes) -> bool:
-    """Verify XOR checksum (last byte vs XOR of all preceding bytes)."""
+    """Verify XOR checksum.
+
+    The checksum byte (last byte) equals XOR of ``data[1:-2]`` -- i.e.
+    all bytes except the first magic byte (``0x79``), the last tail byte,
+    and the checksum itself.
+    """
     xor = 0
-    for b in data[:-1]:
+    for b in data[1:-2]:
         xor ^= b
     return xor == data[-1]
 
@@ -140,12 +154,15 @@ def decode_frame(data: bytes) -> TelemetryFrame | None:
     sn_raw = struct.unpack_from("<I", data, OFF_SN)[0]
     serial_number = f"{sn_raw:08X}"
 
+    # Alert / status code (bytes 23-24, big-endian)
+    alert_code = _be16(data, OFF_ALERT)
+
     # Aggregate readings (all little-endian)
     total_current_raw = _le16(data, OFF_TOTAL_CURRENT)
     mppt1_voltage_raw = _le16(data, OFF_MPPT1_VOLTAGE)
-    unknown_a = _le16(data, OFF_UNKNOWN_A)
+    ac_voltage_raw = _le16(data, OFF_AC_VOLTAGE)
     ac_freq_raw = _le16(data, OFF_AC_FREQ)
-    unknown_b = _le16(data, OFF_UNKNOWN_B)
+    temperature_raw = _le16(data, OFF_TEMPERATURE)
     total_energy_raw = _le16(data, OFF_TOTAL_ENERGY)
     grid_spec_raw = _le16(data, OFF_GRID_SPEC)
 
@@ -189,8 +206,9 @@ def decode_frame(data: bytes) -> TelemetryFrame | None:
         modules=modules,
         frame_length=frame_length,
         data_length=data_length,
+        ac_voltage=ac_voltage_raw / AC_VOLTAGE_SCALE - AC_VOLTAGE_OFFSET,
+        temperature=temperature_raw / TEMPERATURE_SCALE - TEMPERATURE_OFFSET,
+        alert_code=alert_code,
         checksum_ok=verify_checksum(data),
-        unknown_a=unknown_a,
-        unknown_b=unknown_b,
         raw_hex=data.hex(),
     )

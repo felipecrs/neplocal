@@ -1,6 +1,8 @@
 """neplocal - Decode the local binary protocol used by NEP solar microinverters."""
 
 from .protocol import (
+    AC_VOLTAGE_OFFSET,
+    AC_VOLTAGE_SCALE,
     CLOUD_HOST,
     CLOUD_PATH,
     CMD_TELEMETRY,
@@ -10,6 +12,8 @@ from .protocol import (
     MAGIC,
     MODULE_SIZE,
     POWER_SCALE,
+    TEMPERATURE_OFFSET,
+    TEMPERATURE_SCALE,
     VOLTAGE_SCALE,
     ModuleReading,
     TelemetryFrame,
@@ -28,6 +32,10 @@ __all__ = [
     "POWER_SCALE",
     "ENERGY_SCALE",
     "FREQUENCY_SCALE",
+    "AC_VOLTAGE_SCALE",
+    "AC_VOLTAGE_OFFSET",
+    "TEMPERATURE_SCALE",
+    "TEMPERATURE_OFFSET",
     "MODULE_SIZE",
     "TelemetryFrame",
     "ModuleReading",

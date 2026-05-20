@@ -77,12 +77,15 @@ def dns_resolve(hostname: str, server: str = "1.1.1.1") -> str:
 def print_frame(frame: TelemetryFrame) -> None:
     """Pretty-print a decoded frame to stdout."""
     ok = "OK" if frame.checksum_ok else "?"
-    print(f"  SN={frame.serial_number}  cksum={ok}")
+    alert = f"  alert=0x{frame.alert_code:04X}" if frame.alert_code else ""
+    print(f"  SN={frame.serial_number}  cksum={ok}{alert}")
     print(
         f"  Total: {frame.total_dc_power:7.1f} W  "
         f"{frame.total_dc_current:6.3f} A  "
         f"{frame.total_energy_today:8.1f} Wh  "
-        f"freq={frame.ac_frequency:.2f} Hz"
+        f"freq={frame.ac_frequency:.2f} Hz  "
+        f"AC={frame.ac_voltage:.0f} V  "
+        f"temp={frame.temperature:.1f} °C"
     )
     for m in frame.modules:
         print(

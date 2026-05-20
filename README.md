@@ -22,7 +22,9 @@ raw = bytes.fromhex(
 
 frame = decode_frame(raw)
 if frame:
-    print(f"{frame.serial_number}: {frame.total_dc_power:.1f} W")
+    print(f"{frame.serial_number}: {frame.total_dc_power:.1f} W  "
+          f"AC={frame.ac_voltage:.0f} V  temp={frame.temperature:.1f} °C  "
+          f"cksum={'OK' if frame.checksum_ok else 'FAIL'}")
     for m in frame.modules:
         print(f"  Module {m.index}: {m.dc_power:.1f} W  {m.dc_voltage:.1f} V  {m.dc_current:.3f} A")
 ```
@@ -30,7 +32,7 @@ if frame:
 Output:
 
 ```
-86D4EC90: 1572.5 W
+86D4EC90: 1572.5 W  AC=245 V  temp=37.3 °C  cksum=OK
   Module 0: 396.9 W  33.4 V  11.895 A
   Module 1: 388.8 W  33.4 V  11.650 A
   Module 2: 409.5 W  33.2 V  12.347 A
@@ -84,13 +86,13 @@ A complete telemetry frame for a 4-module inverter is **69 bytes**:
  12       2   Data length           big-endian u16
  14       5   Padding               0x00 0xFF 0xFF 0xFF 0xFF
  19       4   Serial number         little-endian u32 -> hex string
- 23       2   Padding               0x00 0x00
+ 23       2   Alert code            big-endian u16 (0x0000 = OK)
  25       2   Total DC current      little-endian u16
  27       2   MPPT1 DC voltage      little-endian u16
- 29       2   Unknown A             little-endian u16 (~4200)
+ 29       2   AC voltage RMS        little-endian u16
  31       2   Constant              0x00 0x01
  33       2   AC frequency          little-endian u16
- 35       2   Unknown B             little-endian u16 (varies)
+ 35       2   Temperature           little-endian u16
  37       2   Total energy today    little-endian u16
  39       2   Grid specification    little-endian u16
  41      6*M  Per-module data       M modules x 6 bytes each
@@ -114,11 +116,13 @@ All 16-bit data words are **little-endian unsigned**. The following scale factor
 
 | Field | Formula | Unit | Notes |
 |---|---|---|---|
-| Voltage | raw / 256 | V | 8.8 fixed-point |
+| DC Voltage | raw / 256 | V | 8.8 fixed-point |
 | Current | raw / 819.2 | A | |
 | Power | V_raw * I_raw / 209,715.2 | W | Derived from V and I scales |
 | Energy | raw * 3.62 | Wh | Resets daily |
-| Frequency | raw / 256 | Hz | 8.8 fixed-point |
+| AC Frequency | raw / 256 | Hz | 8.8 fixed-point |
+| AC Voltage | raw / 16 − 22 | V | RMS grid voltage; 1 V resolution |
+| Temperature | raw / 48 − 53 | °C | Inverter internal temperature |
 
 ### Grid specification field (bytes 39-40)
 
@@ -126,6 +130,18 @@ The LE u16 at offset 39 encodes grid parameters:
 
 - **High byte**: nominal AC voltage (e.g. `0xE6` = 230 V)
 - **Low byte**: frequency code (e.g. `0x06` = 60 Hz grid, `0x05` = 50 Hz)
+
+### Alert code (bytes 23-24)
+
+The BE u16 at offset 23 encodes the device's current alert status. Observed values:
+
+| Code | Meaning | Notes |
+|---|---|---|
+| `0x0000` | OK | Normal operation |
+| `0x0040` | AC voltage RMS over | Grid voltage exceeds threshold |
+| `0x0020` | Frequency under | Grid frequency below threshold |
+
+These codes match the `alert_code` field returned by the NEP cloud API (`device-detail` and `site-modules` endpoints). When an alert is active, the grid specification low byte also changes (see below).
 
 ### Module flags (bytes 7-10)
 
@@ -142,15 +158,27 @@ These relationships were verified across multiple captures from two devices:
 
 ### Checksum
 
-The last byte appears to be a checksum. XOR of all preceding bytes does **not** match in the captured samples. The actual algorithm is unknown. The frames are accepted by the server regardless, suggesting the checksum may use a different algorithm or may be optional.
+The last byte is a **XOR checksum** computed over `data[1:-2]` -- all bytes except the first magic byte (`0x79`), the last tail byte, and the checksum itself:
 
-### Unknown fields
+```
+checksum = XOR(data[1], data[2], ..., data[len-3])
+```
+
+Equivalently: `checksum = XOR(frame[1 : -2])`. Verified against 65 captured frames from two devices.
+
+### Decoded fields (formerly unknown)
+
+| Offset | Field | Scale | Notes |
+|---|---|---|---|
+| 23-24 | Alert code | BE u16 | `0x0000`=OK, `0x0040`=AC over-voltage, `0x0020`=freq under |
+| 29-30 | AC voltage RMS | LE u16 / 16 − 22 | Measured grid voltage in V; same across co-located devices |
+| 35-36 | Temperature | LE u16 / 48 − 53 | Internal inverter temp in °C; device-specific |
+
+### Remaining unknown fields
 
 | Offset | Observed values | Notes |
 |---|---|---|
-| 29-30 (Unknown A) | ~4200 | Similar across devices, varies slowly |
-| 35-36 (Unknown B) | varies | Device-specific, fluctuates between reports |
-| 41+6*M to 41+6*M+2 (Tail) | varies | 3 bytes, changes every report |
+| 41+6*M to 41+6*M+2 (Tail) | varies | 3 bytes, changes every report, no clear pattern |
 
 ## MITM proxy
 
@@ -193,15 +221,18 @@ Each intercepted frame is appended as a JSON line to `captures/<SERIAL_NUMBER>.j
   "total_dc_current_A": 47.268,
   "total_energy_today_Wh": 8796.6,
   "mppt1_voltage_V": 33.37,
+  "ac_voltage_V": 245.0,
   "ac_frequency_Hz": 60.04,
+  "temperature_C": 37.33,
   "grid_voltage_V": 230,
+  "alert_code": "0x0000",
   "modules": [
     {"index": 0, "dc_voltage_V": 33.37, "dc_current_A": 11.895, "dc_power_W": 396.9, "energy_today_Wh": 2208.2},
     {"index": 1, "dc_voltage_V": 33.37, "dc_current_A": 11.65, "dc_power_W": 388.8, "energy_today_Wh": 2153.9},
     {"index": 2, "dc_voltage_V": 33.16, "dc_current_A": 12.347, "dc_power_W": 409.5, "energy_today_Wh": 2305.9},
     {"index": 3, "dc_voltage_V": 33.16, "dc_current_A": 11.376, "dc_power_W": 377.3, "energy_today_Wh": 2121.3}
   ],
-  "checksum_ok": false,
+  "checksum_ok": true,
   "raw_hex": "793e004014..."
 }
 ```
@@ -219,6 +250,10 @@ The scale factors were derived by:
 
 The cloud API reports **AC output power** while the binary protocol reports **DC input** per module. The ~2-3% delta between sum-of-DC-module-power and cloud-reported-AC-power is consistent with inverter conversion efficiency losses.
 
+The AC voltage and temperature formulas were calibrated by time-aligning binary captures with the cloud API's per-parameter chart data (`/device/statistics/echarts` with `lines=["AC Voltage","Temperature"]`):
+- **AC voltage** (bytes 29-30): `raw / 16 − 22`. The `/16` divisor was established from the raw value resolution (all values are multiples of 16). The `−22` offset was determined by comparing against 14 time-aligned cloud readings from 2 co-located devices (both measure the same grid voltage). Matches within ±1 V, also confirmed with a multimeter reading of 240 V
+- **Temperature** (bytes 35-36): `raw / 48 − 53`. Determined via linear regression on 14 time-aligned data points from 2 devices (which run at different temperatures, providing range). Matches the cloud within ±0.7 °C
+
 ## Tested devices
 
 | Model | Modules | Gateway | Grid | Verified |
@@ -229,13 +264,18 @@ Other NEP models using the same gateway firmware likely use the same protocol. M
 
 ## What's remaining
 
+### Solved (previously unknown)
+
+- **Checksum algorithm**: XOR of `data[1:-2]` (all bytes except the first magic byte, last tail byte, and checksum). Verified on 65 captured frames.
+- **AC voltage RMS** (bytes 29-30): Grid voltage measured by the inverter, encoded as LE u16 / 16 − 22. Values ~233-245 V on a 230 V nominal grid. Consistent across co-located devices (same grid). Verified against cloud chart data and multimeter (±1 V accuracy across 14 time-aligned data points from 2 devices).
+- **Temperature** (bytes 35-36): Internal inverter temperature in °C, encoded as LE u16 / 48 − 53. Ranges 27-37 °C during light production, higher during peak. Device-specific. Verified against cloud chart data (±0.7 °C accuracy across 14 time-aligned data points).
+- **Alert code** (bytes 23-24): Previously labeled as padding. Encodes the device alert status as a BE u16, matching the cloud API's `alert_code` field (e.g. `0x0040` = "AC voltage RMS over").
+
 ### Known unknowns
 
-- **Checksum algorithm**: The last byte is a checksum but we haven't identified the algorithm. XOR doesn't match. The server accepts frames regardless.
-- **Unknown A** (bytes 29-30): Consistent ~4200 across devices. Could be a temperature reading, internal voltage reference, or AC voltage measurement. Needs more data across different conditions.
-- **Unknown B** (bytes 35-36): Device-specific, fluctuates. Could be instantaneous AC power, grid impedance, or another operational parameter.
-- **Tail bytes** (3 bytes after module data): Change every report. Could be a sequence counter, timestamp fragment, or additional measurements.
+- **Tail bytes** (3 bytes after module data): Change every report. Could be a sequence counter, timestamp fragment, or additional measurements. No pattern identified yet.
 - **Other command codes**: Only `0x1400` (telemetry) has been observed. The protocol likely supports other commands (configuration, firmware update, etc.) but these haven't been captured.
+- **Grid spec low byte**: Changes from `0x06` (normal 60 Hz operation) to `0x01` during alerts and startup. The exact encoding is unclear -- it may represent an operational mode rather than just a frequency code.
 
 ### Potential future work
 
@@ -243,7 +283,7 @@ Other NEP models using the same gateway firmware likely use the same protocol. M
 - **More models**: Test with other NEP inverter models (BDM-600, BDM-1200, BDM-800, three-phase models) to verify the protocol is consistent.
 - **Home Assistant integration**: Build a HA custom component that uses the MITM proxy approach (or local polling if discovered) for cloud-free solar monitoring.
 - **Energy counter rollover**: The energy field is a 16-bit value (max ~237 kWh at the 3.62 scale). Need to verify behavior at rollover -- likely resets daily at midnight.
-- **AC-side measurements**: The cloud API reports AC voltage, current, and power per module. These may be encoded in the unknown fields or may require a different query command.
+- **AC current and power**: AC voltage is now decoded (bytes 29-30). AC current and per-module AC power are still unaccounted for -- the cloud API reports these values but they may require a different query command or be derived server-side from DC power with an efficiency factor.
 
 ## Related
 

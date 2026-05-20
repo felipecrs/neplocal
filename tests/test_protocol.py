@@ -7,9 +7,13 @@ from __future__ import annotations
 
 import pytest
 
-from protocol import (
+from neplocal.protocol import (
+    AC_VOLTAGE_OFFSET,
+    AC_VOLTAGE_SCALE,
     CMD_TELEMETRY,
     MAGIC,
+    TEMPERATURE_OFFSET,
+    TEMPERATURE_SCALE,
     ModuleReading,
     TelemetryFrame,
     count_modules,
@@ -27,15 +31,15 @@ FRAME_86D4EC90 = bytes.fromhex(
     "00a03822"
 )
 
-# Real captured frame from device 86D33EC0 (2026-05-20 17:07 UTC)
+# Real captured frame from device 86D33EC0 (2026-05-20 17:02 UTC)
 FRAME_86D33EC0 = bytes.fromhex(
     "793e00401400000f0f0f0f00003400ffffffff"
     "c03ed386"  # SN = 86D33EC0 (LE)
     "0000"
-    "c42c5f21a0100001093cc8108809"
-    "06e65f21ae267802"
-    "5f21b524670221218e27890221216c245002"
-    "22b051e5"
+    "0d6d262170100001153c3112cb05"
+    "06e62621fd1861012621a61d7f01"
+    "f921cc1c8201f9219c196801"
+    "5e98e2ee"
 )
 
 
@@ -135,6 +139,37 @@ class TestDecodeFrame:
         assert frame.grid_voltage == 230  # 0xE6
         assert frame.grid_frequency_code == 6  # 60 Hz grid
 
+    def test_checksum(self) -> None:
+        """Verify XOR checksum: XOR(data[1:-2]) == data[-1]."""
+        frame = decode_frame(FRAME_86D4EC90)
+        assert frame is not None
+        assert frame.checksum_ok
+
+        frame2 = decode_frame(FRAME_86D33EC0)
+        assert frame2 is not None
+        assert frame2.checksum_ok
+
+    def test_ac_voltage(self) -> None:
+        """Verify AC voltage = LE u16 / 16 - 22."""
+        frame = decode_frame(FRAME_86D4EC90)
+        assert frame is not None
+        # Bytes B0 10 -> LE 0x10B0 = 4272 -> 4272/16 - 22 = 245.0 V
+        assert abs(frame.ac_voltage - 245.0) < 0.1
+
+    def test_temperature(self) -> None:
+        """Verify temperature = LE u16 / 48 - 53 (°C)."""
+        frame = decode_frame(FRAME_86D4EC90)
+        assert frame is not None
+        # Bytes F0 10 -> LE 0x10F0 = 4336 -> 4336/48 - 53 = 37.33 °C
+        assert abs(frame.temperature - 37.33) < 0.1
+
+    def test_alert_code(self) -> None:
+        """Alert code from bytes 23-24 (big-endian)."""
+        frame = decode_frame(FRAME_86D4EC90)
+        assert frame is not None
+        # Bytes 00 00 -> no alert
+        assert frame.alert_code == 0x0000
+
     def test_mppt_pairing(self) -> None:
         """Modules 0&1 share MPPT1 voltage, modules 2&3 share MPPT2."""
         frame = decode_frame(FRAME_86D4EC90)
@@ -154,6 +189,9 @@ class TestDecodeFrame:
         d = frame.to_dict()
         assert d["sn"] == "86D4EC90"
         assert "total_dc_power_W" in d
+        assert "ac_voltage_V" in d
+        assert "temperature_C" in d
+        assert "alert_code" in d
         assert "modules" in d
         assert len(d["modules"]) == 4
         assert "dc_voltage_V" in d["modules"][0]
