@@ -1,0 +1,8 @@
+services:
+  proxy:
+    build: .
+    ports:
+      - "80:80"
+    volumes:
+      - ./captures:/wd/captures
+    user: "${UID:-1000}:${GID:-1000}"

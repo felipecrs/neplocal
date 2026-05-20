@@ -26,16 +26,6 @@ _PROTOCOL_HASH = hashlib.sha256(
 ).hexdigest()
 
 
-def get_lan_ip() -> str:
-    """Discover this machine's LAN IP by connecting to an external address."""
-    s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
-    try:
-        s.connect(("1.1.1.1", 53))
-        return s.getsockname()[0]
-    finally:
-        s.close()
-
-
 def dns_resolve(hostname: str, server: str = "1.1.1.1") -> str:
     """Resolve *hostname* via a raw UDP DNS query to *server*."""
     query_id = 0xABCD
@@ -187,10 +177,6 @@ def main() -> None:
     args.log_dir.mkdir(parents=True, exist_ok=True)
     ProxyHandler.log_dir = args.log_dir
 
-    # Detect LAN IP
-    lan_ip = get_lan_ip()
-    print(f"Detected LAN IP: {lan_ip}")
-
     # Resolve the real server IP via external DNS
     print(f"Resolving {CLOUD_HOST} via {args.dns}...")
     real_ip = dns_resolve(CLOUD_HOST, args.dns)
@@ -201,9 +187,8 @@ def main() -> None:
     print(f"\nNEP MITM Proxy listening on :{args.port}")
     print(f"  Forwarding to {CLOUD_HOST} ({real_ip})")
     print(f"  Logs: {args.log_dir.resolve()}")
-    print(f"\nOpenWRT dnsmasq setup:")
-    print(f'  echo "address=/{CLOUD_HOST}/{lan_ip}" >> /etc/dnsmasq.conf')
-    print(f"  /etc/init.d/dnsmasq restart")
+    print(f"\nConfigure your DNS server to resolve {CLOUD_HOST}")
+    print(f"to the IP address of this machine.")
     print(f"\nWaiting for inverter traffic...\n")
 
     try:
