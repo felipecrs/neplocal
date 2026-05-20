@@ -9,6 +9,7 @@ Usage::
 
 from __future__ import annotations
 
+import hashlib
 import json
 import socket
 import struct
@@ -18,6 +19,11 @@ from pathlib import Path
 from urllib.request import Request, urlopen
 
 from .protocol import CLOUD_HOST, TelemetryFrame, decode_frame
+
+# Hash of protocol.py -- identifies which decode logic produced the capture values.
+_PROTOCOL_HASH = hashlib.sha256(
+    (Path(__file__).parent / "protocol.py").read_bytes()
+).hexdigest()
 
 
 def get_lan_ip() -> str:
@@ -116,7 +122,12 @@ class ProxyHandler(BaseHTTPRequestHandler):
         if frame:
             print_frame(frame)
 
-            entry = {"t": ts.isoformat(), **frame.to_dict(), "raw_hex": frame.raw_hex}
+            entry = {
+                "t": ts.isoformat(),
+                **frame.to_dict(),
+                "raw_hex": frame.raw_hex,
+                "decoder": _PROTOCOL_HASH,
+            }
             log_file = self.log_dir / f"{sn}.jsonl"
             with open(log_file, "a") as f:
                 f.write(json.dumps(entry) + "\n")

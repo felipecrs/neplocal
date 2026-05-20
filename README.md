@@ -242,7 +242,8 @@ Each intercepted frame is appended as a JSON line to `captures/<SERIAL_NUMBER>.j
     {"index": 3, "dc_voltage_V": 33.16, "dc_current_A": 11.376, "dc_power_W": 377.3, "energy_today_Wh": 2121.3}
   ],
   "checksum_ok": true,
-  "raw_hex": "793e004014..."
+  "raw_hex": "793e004014...",
+  "decoder": "bd8eedcdbbddcbdff4b6a75a888bb80e11813d66ce01c72d18754b7375bc43b2"
 }
 ```
 
