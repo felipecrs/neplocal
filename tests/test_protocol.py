@@ -157,11 +157,11 @@ class TestDecodeFrame:
         assert abs(frame.ac_voltage - 245.0) < 0.1
 
     def test_temperature(self) -> None:
-        """Verify temperature = LE u16 / 48 - 53 (°C)."""
+        """Verify temperature = LE u16 / 49.5 - 50.24 (°C)."""
         frame = decode_frame(FRAME_86D4EC90)
         assert frame is not None
-        # Bytes F0 10 -> LE 0x10F0 = 4336 -> 4336/48 - 53 = 37.33 °C
-        assert abs(frame.temperature - 37.33) < 0.1
+        # Bytes F0 10 -> LE 0x10F0 = 4336 -> 4336/49.5 - 50.24 = 37.36 °C
+        assert abs(frame.temperature - 37.36) < 0.1
 
     def test_alert_code(self) -> None:
         """Alert code from bytes 23-24 (big-endian)."""

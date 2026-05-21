@@ -122,7 +122,7 @@ All 16-bit data words are **little-endian unsigned**. The following scale factor
 | Energy | raw * 3.62 | Wh | Resets daily |
 | AC Frequency | raw / 256 | Hz | 8.8 fixed-point |
 | AC Voltage | raw / 16 − 22 | V | RMS grid voltage; see [calibration notes](#ac-voltage-and-temperature-calibration) |
-| Temperature | raw / 48 − 53 | °C | Inverter temperature; linear approximation of non-linear sensor |
+| Temperature | raw / 49.5 − 50.24 | °C | Inverter temperature; see [calibration notes](#ac-voltage-and-temperature-calibration) |
 
 ### Grid specification field (bytes 39-40)
 
@@ -172,7 +172,7 @@ Equivalently: `checksum = XOR(frame[1 : -2])`. Verified against 65 captured fram
 |---|---|---|---|
 | 23-24 | Alert code | BE u16 | `0x0000`=OK, `0x0040`=AC over-voltage, `0x0020`=freq under |
 | 29-30 | AC voltage RMS | LE u16 / 16 − 22 | Measured grid voltage in V; same across co-located devices |
-| 35-36 | Temperature | LE u16 / 48 − 53 | Internal inverter temp in °C; device-specific |
+| 35-36 | Temperature | LE u16 / 49.5 − 50.24 | Internal inverter temp in °C; device-specific |
 
 ### Remaining unknown fields
 
@@ -264,16 +264,16 @@ Formulas were calibrated by time-aligning binary captures with the cloud API's p
 
 **AC voltage** (bytes 29-30): `raw / 16 − 22`.
 
-- The **`/ 16`** is definitive: all observed raw values are exact multiples of 16, and the cloud reports only exact integers (0 fractional values in 800+ data points across 4 days). This means the measurement has 1 V resolution and the encoding multiplies by 16.
-- The **`− 22`** offset is empirical (±1 V): determined by comparing `raw/16` against cloud values at matching timestamps. A purely multiplicative model `raw × 11/192` also fits the observed voltage range (233–247 V) but produces non-integer intermediate results. The two models diverge at lower voltages (<230 V); binary captures during low-voltage conditions would resolve the ambiguity.
-- The cloud-reported AC voltage for two co-located devices can differ by up to 7 V at the same moment (measurement noise + per-device variation), so the offset cannot be verified more precisely than ±2 V from cloud data alone.
+- The **`/ 16`** is definitive: all observed raw values are exact multiples of 16, and the cloud reports only exact integers. This means the measurement has 1 V resolution and the encoding multiplies by 16.
+- The **`− 22`** offset is confirmed: verified against 77 time-aligned data points from two co-located devices — zero error on every matched point. A purely multiplicative model `raw × 11/192` also fits the observed voltage range (233–247 V) but produces non-integer intermediate results. The two models diverge at lower voltages (<230 V); binary captures during low-voltage conditions would resolve the ambiguity.
 - Confirmed against a multimeter reading of 240 V.
 
-**Temperature** (bytes 35-36): `raw / 48 − 53`.
+**Temperature** (bytes 35-36): `raw / 49.5 − 50.24`.
 
-- The temperature sensor is **non-linear** (likely NTC thermistor). Evidence: the slope `Δraw / ΔT` is ~43 raw units/°C at 26–29 °C but ~48 raw units/°C at 27–35 °C. A linear formula is inherently an approximation.
-- `/ 48 − 53` was calibrated over the wider range (27–35 °C, 14 time-aligned data points). It matches the cloud within ±1 °C across this range. It may be less accurate at temperature extremes (the cloud reports 17–59 °C for these devices).
-- The cloud reports only integer °C for temperature as well.
+- The temperature sensor is **non-linear** (likely NTC thermistor). A linear formula is inherently an approximation.
+- `/ 49.5 − 50.24` was calibrated by linear regression over 77 time-aligned data points from two devices (86D33EC0 and 86D4EC90), covering the 14–48 °C range. Every data point rounds to the exact integer reported by the cloud (100% match). RMSE = 0.29 °C, max error = 0.50 °C.
+- The previous formula (`/ 48 − 53`) was calibrated over a narrower range (27–35 °C, 14 points) and only matched ~57% of data points when rounded to the cloud's integer resolution.
+- The cloud reports only integer °C for temperature.
 
 ## Tested devices
 
@@ -289,7 +289,7 @@ Other NEP models using the same gateway firmware likely use the same protocol. M
 
 - **Checksum algorithm**: XOR of `data[1:-2]` (all bytes except the first magic byte, last tail byte, and checksum). Verified on 65 captured frames.
 - **AC voltage RMS** (bytes 29-30): Grid voltage measured by the inverter, encoded as LE u16 / 16 − 22. Values ~202-247 V observed on a 230 V nominal grid. The `/16` divisor is definitive (exact integer output); the `−22` offset is empirical (±1 V). See [calibration notes](#ac-voltage-and-temperature-calibration).
-- **Temperature** (bytes 35-36): Internal inverter temperature in °C, encoded as LE u16 / 48 − 53. This is a linear approximation of a non-linear sensor (likely NTC thermistor). Accurate to ±1 °C in the 27–35 °C range; may diverge at extremes. See [calibration notes](#ac-voltage-and-temperature-calibration).
+- **Temperature** (bytes 35-36): Internal inverter temperature in °C, encoded as LE u16 / 49.5 − 50.24. Linear approximation of a non-linear sensor (likely NTC thermistor). Accurate to ±0.5 °C across the 14–48 °C range (77 data points, 2 devices). See [calibration notes](#ac-voltage-and-temperature-calibration).
 - **Alert code** (bytes 23-24): Previously labeled as padding. Encodes the device alert status as a BE u16, matching the cloud API's `alert_code` field (e.g. `0x0040` = "AC voltage RMS over").
 
 ### Known unknowns
