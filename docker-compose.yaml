@@ -6,3 +6,4 @@ services:
     volumes:
       - ./captures:/wd/captures
     user: "${UID:-1000}:${GID:-1000}"
+    restart: unless-stopped
