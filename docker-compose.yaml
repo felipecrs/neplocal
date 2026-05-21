@@ -1,6 +1,9 @@
 services:
   proxy:
-    build: .
+    build:
+      context: .
+      pull: true
+    pull_policy: build
     ports:
       - "80:80"
     environment:
