@@ -24,6 +24,9 @@ dev = [
     "mypy>=1.10",
 ]
 
+[tool.hatch.build.targets.wheel]
+packages = ["src/neplocal"]
+
 [build-system]
 requires = ["hatchling"]
 build-backend = "hatchling.build"
