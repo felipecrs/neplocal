@@ -3,6 +3,8 @@ services:
     build: .
     ports:
       - "80:80"
+    environment:
+      - TZ
     volumes:
       - ./captures:/wd/captures
     user: "${UID:-1000}:${GID:-1000}"
