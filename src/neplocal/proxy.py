@@ -93,8 +93,25 @@ def print_frame(frame: TelemetryFrame) -> None:
 
 
 class ProxyHandler(BaseHTTPRequestHandler):
+    timeout = 30
     log_dir: Path = Path("captures")
     real_ip: str = ""
+    dns_server: str = "1.1.1.1"
+
+    def _forward(self, body: bytes) -> tuple[bytes, int]:
+        """Forward request to the real cloud server."""
+        req = Request(
+            f"http://{self.real_ip}{self.path}",
+            data=body,
+            headers={
+                "Host": CLOUD_HOST,
+                "Connection": "close",
+                "Content-Length": str(len(body)),
+            },
+            method="POST",
+        )
+        with urlopen(req, timeout=10) as resp:
+            return resp.read(), resp.status
 
     def do_POST(self) -> None:
         length = int(self.headers.get("Content-Length", 0))
@@ -126,19 +143,21 @@ class ProxyHandler(BaseHTTPRequestHandler):
 
         # Forward to real server using resolved IP
         try:
-            req = Request(
-                f"http://{self.real_ip}{self.path}",
-                data=body,
-                headers={
-                    "Host": CLOUD_HOST,
-                    "Connection": "close",
-                    "Content-Length": str(len(body)),
-                },
-                method="POST",
-            )
-            with urlopen(req, timeout=10) as resp:
-                resp_body = resp.read()
-                resp_code = resp.status
+            try:
+                resp_body, resp_code = self._forward(body)
+            except Exception:
+                # IP may have gone stale — re-resolve and retry if it changed
+                old_ip = ProxyHandler.real_ip
+                ProxyHandler.real_ip = dns_resolve(
+                    CLOUD_HOST, ProxyHandler.dns_server
+                )
+                if ProxyHandler.real_ip == old_ip:
+                    raise
+                print(
+                    f"  -> re-resolved {CLOUD_HOST}"
+                    f" to {ProxyHandler.real_ip}"
+                )
+                resp_body, resp_code = self._forward(body)
 
             print(f"  -> server {resp_code}: {resp_body!r}")
             self.send_response(resp_code)
@@ -182,6 +201,7 @@ def main() -> None:
     real_ip = dns_resolve(CLOUD_HOST, args.dns)
     print(f"  -> {real_ip}")
     ProxyHandler.real_ip = real_ip
+    ProxyHandler.dns_server = args.dns
 
     srv = HTTPServer(("0.0.0.0", args.port), ProxyHandler)
     print(f"\nNEP MITM Proxy listening on :{args.port}")
