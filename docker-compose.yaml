@@ -6,9 +6,8 @@ services:
     pull_policy: build
     ports:
       - "80:80"
-    environment:
-      - TZ
     volumes:
+      - /etc/timezone:/etc/timezone:ro
       - ./captures:/wd/captures
     user: "${UID:-1000}:${GID:-1000}"
     restart: unless-stopped
