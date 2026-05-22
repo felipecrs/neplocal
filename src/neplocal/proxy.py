@@ -118,11 +118,12 @@ class ProxyHandler(BaseHTTPRequestHandler):
         body = self.rfile.read(length) if length else b""
 
         ts = datetime.now(timezone.utc)
+        log_ts = ts.astimezone()
         frame = decode_frame(body)
         sn = frame.serial_number if frame else "unknown"
 
         print(
-            f"\n[{ts:%H:%M:%S}] POST {self.path} "
+            f"\n[{log_ts:%Y-%m-%d %H:%M:%S %Z%z}] POST {self.path} "
             f"({len(body)}B) from {self.client_address[0]}"
         )
 
